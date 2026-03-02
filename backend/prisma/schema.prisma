@@ -1,0 +1,82 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Use provider = "postgresql" for production with Postgres.
+// For local testing you can set DATABASE_URL to a Postgres or SQLite URL.
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  username     String   @unique
+  passwordHash String
+  role         String   @default("user")
+  createdAt    DateTime @default(now())
+}
+
+model Product {
+  id              String   @id @default(uuid())
+  sku             String?  @unique
+  name            String
+  embalagem       String?  @default("UN")
+  qtdEmbalagem    Int      @default(1)
+  custoBruto      Float    @default(0)
+  percentMarkup   Float    @default(0)
+  precoVenda      Float    @default(0)
+  estoque         Int      @default(0)
+  estoqueMinimo   Int      @default(0)
+  validade        DateTime?
+  categoria       String?
+  fornecedor      String?
+  marca           String?
+  gtin            String?
+  comissao        Float    @default(0)
+  observacao      String?
+  foto            String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Customer {
+  id        String   @id @default(uuid())
+  name      String
+  email     String? 
+  phone     String? 
+  createdAt DateTime @default(now())
+}
+
+model Order {
+  id         String    @id @default(uuid())
+  customerId String?
+  createdAt  DateTime  @default(now())
+  items      OrderItem[]
+  total      Float     @default(0)
+  discount   Float     @default(0)
+  paymentMethod String?
+  paymentAmount Float?
+  status     String    @default("completed")
+  cashierId  String?
+  payments   Payment[]
+}
+
+model OrderItem {
+  id        String  @id @default(uuid())
+  order     Order   @relation(fields: [orderId], references: [id])
+  orderId   String
+  productId String
+  quantity  Int
+  price     Float
+}
+
+model Payment {
+  id        String   @id @default(uuid())
+  order     Order?   @relation(fields: [orderId], references: [id])
+  orderId   String?
+  method    String
+  amount    Float
+  createdAt DateTime @default(now())
+}

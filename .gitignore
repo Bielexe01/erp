@@ -1,0 +1,33 @@
+# dependencies
+**/node_modules/
+
+# builds
+frontend/dist/
+backend/dist/
+**/.next/
+**/coverage/
+
+# environment
+**/.env
+**/.env.*
+!**/.env.example
+
+# local runtime data
+backend/src/db.json
+
+# logs
+**/*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# runtime
+**/.turbo/
+**/.cache/
+**/.vercel/
+
+# editor / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
