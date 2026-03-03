@@ -1,4 +1,4 @@
-﻿import React, { Suspense, lazy } from 'react'
+﻿import React, { Suspense, lazy, useEffect, useState } from 'react'
 import { Routes, Route, Link, NavLink, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import Login from './pages/Login'
 import Register from './pages/Register'
@@ -16,11 +16,12 @@ const Purchases = lazy(() => import('./pages/Purchases'))
 const Employees = lazy(() => import('./pages/Employees'))
 const PDVConfig = lazy(() => import('./pages/PDVConfig'))
 
-function MenuLink({ to, label }) {
+function MenuLink({ to, label, onNavigate }) {
   return (
     <NavLink
       to={to}
       className={({ isActive }) => `menu-link${isActive ? ' active' : ''}`}
+      onClick={onNavigate}
     >
       <span className="menu-glyph" aria-hidden="true">▣</span>
       <span>{label}</span>
@@ -48,6 +49,7 @@ function App() {
 
   const navigate = useNavigate()
   const location = useLocation()
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
 
   function logout() {
     localStorage.removeItem('pdv_token')
@@ -70,6 +72,14 @@ function App() {
     '/finance': 'Financas'
   }[location.pathname] || 'Frente de Caixa'
 
+  useEffect(() => {
+    setIsSidebarOpen(false)
+  }, [location.pathname])
+
+  function handleMenuNavigate() {
+    setIsSidebarOpen(false)
+  }
+
   if (!token) {
     return (
       <div className="app">
@@ -89,6 +99,17 @@ function App() {
   return (
     <div className="erp-shell">
       <header className="erp-topbar">
+        <button
+          type="button"
+          className="mobile-menu-toggle"
+          onClick={() => setIsSidebarOpen((prev) => !prev)}
+          aria-label="Abrir menu"
+          aria-expanded={isSidebarOpen}
+          aria-controls="erp-sidebar"
+        >
+          Menu
+        </button>
+
         <div className="topbar-left">
           <div className="brand-name">Sistema ERP</div>
           <div className="module-name">{currentModule}</div>
@@ -101,36 +122,43 @@ function App() {
         </div>
       </header>
 
+      <button
+        type="button"
+        className={`erp-overlay${isSidebarOpen ? ' visible' : ''}`}
+        aria-label="Fechar menu lateral"
+        onClick={() => setIsSidebarOpen(false)}
+      />
+
       <div className="erp-body">
-        <aside className="erp-sidebar">
+        <aside id="erp-sidebar" className={`erp-sidebar${isSidebarOpen ? ' open' : ''}`}>
           <div className="erp-sidebar-scroll">
-            <MenuLink to="/" label="Dashboard" />
-            <MenuLink to="/orders" label="Pedidos" />
+            <MenuLink to="/" label="Dashboard" onNavigate={handleMenuNavigate} />
+            <MenuLink to="/orders" label="Pedidos" onNavigate={handleMenuNavigate} />
             <MenuStatic label="Conferencia de pedidos" />
 
             <div className="menu-section">PDV</div>
-            <MenuLink to="/pdv-config" label="Configuracao Frente de Caixa" />
-            <MenuLink to="/pdv" label="Frente de Caixa" />
+            <MenuLink to="/pdv-config" label="Configuracao Frente de Caixa" onNavigate={handleMenuNavigate} />
+            <MenuLink to="/pdv" label="Frente de Caixa" onNavigate={handleMenuNavigate} />
 
             <MenuStatic label="Nota Fiscal" />
-            <MenuLink to="/customers" label="Clientes" />
-            <MenuLink to="/products" label="Produtos" />
-            <MenuLink to="/suppliers" label="Fornecedores" />
+            <MenuLink to="/customers" label="Clientes" onNavigate={handleMenuNavigate} />
+            <MenuLink to="/products" label="Produtos" onNavigate={handleMenuNavigate} />
+            <MenuLink to="/suppliers" label="Fornecedores" onNavigate={handleMenuNavigate} />
             <MenuStatic label="Tabela de precos" />
-            <MenuLink to="/purchases" label="Compras" />
+            <MenuLink to="/purchases" label="Compras" onNavigate={handleMenuNavigate} />
             <MenuStatic label="Cond. de pagamento" />
-            <MenuLink to="/finance" label="Financas" />
+            <MenuLink to="/finance" label="Financas" onNavigate={handleMenuNavigate} />
             <MenuStatic label="Agendas (CRM)" />
             <MenuStatic label="Transportadoras" />
             <MenuStatic label="Empresas/Representadas" />
-            <MenuLink to="/employees" label="Vendedores" />
+            <MenuLink to="/employees" label="Vendedores" onNavigate={handleMenuNavigate} />
             <MenuStatic label="Equipes de vendas" />
             <MenuStatic label="Metas" />
-            <MenuLink to="/report" label="Relatorios" />
+            <MenuLink to="/report" label="Relatorios" onNavigate={handleMenuNavigate} />
             <MenuStatic label="Importacoes" />
             <MenuStatic label="Marketplaces" />
             <MenuStatic label="E-commerce/Catalogo" />
-            <MenuLink to="/sales" label="Historico de vendas" />
+            <MenuLink to="/sales" label="Historico de vendas" onNavigate={handleMenuNavigate} />
           </div>
         </aside>
 

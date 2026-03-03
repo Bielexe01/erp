@@ -238,7 +238,7 @@ export default function Products() {
         />
       </div>
 
-      <div className="table-responsive">
+      <div className="table-responsive products-table-wrapper">
         <table className="table">
           <thead>
             <tr>
@@ -298,6 +298,66 @@ export default function Products() {
             })}
           </tbody>
         </table>
+      </div>
+
+      <div className="products-mobile-list">
+        {listFiltrada.length === 0 && <div className="products-mobile-empty">Nenhum produto encontrado.</div>}
+
+        {listFiltrada.map(p => {
+          const thumbUrl = resolveImageUrl(p.foto, apiOrigin)
+          const canShowThumb = !!thumbUrl && !brokenThumbs[p.id]
+
+          return (
+            <article className="product-card" key={`mobile-${p.id}`}>
+              <div className="product-card-top">
+                <div className="product-card-photo">
+                  {canShowThumb ? (
+                    <img
+                      src={thumbUrl}
+                      alt={p.name || 'foto produto'}
+                      className="product-thumb"
+                      onError={() => setBrokenThumbs(prev => ({ ...prev, [p.id]: true }))}
+                      onClick={() => openEdit(p)}
+                      title="Clique para editar"
+                    />
+                  ) : (
+                    <div className="product-thumb-placeholder">-</div>
+                  )}
+                </div>
+
+                <div className="product-card-main">
+                  <h3>{p.name || 'Produto sem nome'}</h3>
+                  <p><strong>SKU:</strong> {p.sku || '-'}</p>
+                  <p>{p.categoria || 'Sem categoria'} - {p.marca || 'Sem marca'}</p>
+                </div>
+              </div>
+
+              <div className="product-card-grid">
+                <div>
+                  <span>Venda</span>
+                  <strong>R$ {toNumber(p.precoVenda).toFixed(2)}</strong>
+                </div>
+                <div>
+                  <span>Custo</span>
+                  <strong>R$ {toNumber(p.custoBruto).toFixed(2)}</strong>
+                </div>
+                <div>
+                  <span>Estoque</span>
+                  <strong>{toNumber(p.estoque)}</strong>
+                </div>
+                <div>
+                  <span>Minimo</span>
+                  <strong>{toNumber(p.estoqueMinimo)}</strong>
+                </div>
+              </div>
+
+              <div className="product-card-actions">
+                <button className="btn-edit" onClick={() => openEdit(p)}>Editar</button>
+                <button className="btn-delete" onClick={() => remove(p.id)}>Remover</button>
+              </div>
+            </article>
+          )
+        })}
       </div>
 
       {showModal && (

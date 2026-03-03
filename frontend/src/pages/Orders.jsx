@@ -485,6 +485,7 @@ export default function Orders() {
       .slice(0, 8) || '-'
     const companyName = String(companyProfile.companyName || 'Atacado e Cia').trim() || 'Atacado e Cia'
     const companyCnpj = formatCnpj(companyProfile.companyCnpj)
+    const companyDocument = companyCnpj || '-'
     const companyMarkLines = companyName.split(/\s+/).filter(Boolean).slice(0, 2)
     const companyMarkHtml = (companyMarkLines.length ? companyMarkLines : [companyName]).map((part) => escapeHtml(part)).join('<br/>')
     const companyCnpjHtml = companyCnpj ? `<div class="small"><strong>CNPJ</strong> ${escapeHtml(companyCnpj)}</div>` : ''
@@ -551,7 +552,7 @@ export default function Orders() {
             <div class="row" style="grid-template-columns: 63% 14% 23%;">
               <div class="cell"><span class="label">Nome / Razao Social</span><span class="value">${escapeHtml(customerName(source.customerId))}</span></div>
               <div class="cell"><span class="label">Codigo</span><span class="value">${escapeHtml(orderNumber)}</span></div>
-              <div class="cell"><span class="label">CNPJ / CPF</span><span class="value">000.000.000-00</span></div>
+              <div class="cell"><span class="label">CNPJ / CPF</span><span class="value">${escapeHtml(companyDocument)}</span></div>
             </div>
             <div class="row" style="grid-template-columns: 100%;">
               <div class="cell"><span class="label">Nome Fantasia</span><span class="value">${escapeHtml(customerName(source.customerId))}</span></div>
