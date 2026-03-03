@@ -378,8 +378,25 @@ export default function Orders() {
     }
   }
 
-  function printOrderPdf(order) {
-    const itemsRows = (order.items || []).map((item) => {
+  async function printOrderPdf(order) {
+    const orderId = order?.id
+    if (!orderId) {
+      alert('Pedido invalido para gerar PDF')
+      return
+    }
+
+    let source = order
+    try {
+      const res = await api.get(`/orders/${orderId}`)
+      if (res?.data?.id) {
+        source = res.data
+      }
+    } catch (err) {
+      console.error(err)
+      // fallback para os dados da tela se a consulta individual falhar
+    }
+
+    const itemsRows = (source.items || []).map((item) => {
       const qty = toNumber(item.quantity, 0)
       const price = itemPrice(item)
       const total = qty * price
@@ -395,15 +412,21 @@ export default function Orders() {
       `
     }).join('')
 
-    const subtotal = orderSubtotal(order)
-    const total = orderTotal(order)
-    const issueDate = formatDate(order.createdAt)
-    const orderNumber = String(order.id || '').slice(0, 8).toUpperCase()
+    const subtotal = orderSubtotal(source)
+    const total = orderTotal(source)
+    const issuedAt = source?.createdAt ? new Date(source.createdAt) : null
+    const hasIssuedAt = issuedAt && !Number.isNaN(issuedAt.getTime())
+    const issueDateLabel = hasIssuedAt ? issuedAt.toLocaleDateString('pt-BR') : '-'
+    const issueTimeLabel = hasIssuedAt ? issuedAt.toLocaleTimeString('pt-BR') : '-'
+    const orderNumber = String(source.id || '')
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toUpperCase()
+      .slice(0, 8) || '-'
 
     const html = `
       <html>
       <head>
-        <title>Pedido ${escapeHtml(order.id)}</title>
+        <title>Pedido ${escapeHtml(source.id)}</title>
         <style>
           @page { size: A4; margin: 10mm; }
           * { box-sizing: border-box; }
@@ -411,26 +434,29 @@ export default function Orders() {
           .sheet { width: 190mm; margin: 0 auto; }
           .box { border: 1px solid #222; margin-bottom: 6px; }
           .title { font-size: 12px; font-weight: 700; margin-bottom: 2px; text-transform: uppercase; }
-          .header-grid { display: grid; grid-template-columns: 23% 55% 22%; min-height: 78px; }
-          .header-grid > div { border-right: 1px solid #222; padding: 10px 12px; }
+          .header-grid { display: grid; grid-template-columns: 22% 52% 26%; min-height: 72px; }
+          .header-grid > div { border-right: 1px solid #222; padding: 8px 10px; }
           .header-grid > div:last-child { border-right: 0; }
           .center { text-align: center; }
-          .big { font-size: 34px; font-weight: 800; line-height: 1; margin: 8px 0 4px; }
-          .logo { font-size: 18px; font-weight: 800; line-height: 1.05; margin-top: 12px; text-align: center; }
-          .company { font-size: 40px; font-weight: 700; margin: 6px 0; text-align: center; }
-          .seller { font-size: 28px; text-align: center; margin-top: 10px; }
-          .small { font-size: 20px; }
+          .pdf-title { font-size: 16px; font-weight: 700; }
+          .big { font-size: 22px; font-weight: 800; line-height: 1.05; margin: 4px 0 3px; }
+          .order-code { overflow-wrap: anywhere; word-break: break-word; }
+          .logo { font-size: 18px; font-weight: 800; line-height: 1.05; margin-top: 4px; text-align: center; }
+          .company { font-size: 28px; font-weight: 700; margin: 4px 0; text-align: center; }
+          .seller { font-size: 14px; text-align: center; margin-top: 4px; }
+          .small { font-size: 13px; line-height: 1.2; }
           .row { display: grid; border-top: 1px solid #222; }
           .row:first-child { border-top: 0; }
           .cell { border-right: 1px solid #222; padding: 3px 4px; min-height: 32px; }
           .cell:last-child { border-right: 0; }
           .label { display: block; font-size: 9px; text-transform: uppercase; margin-bottom: 2px; }
-          .value { font-size: 14px; font-weight: 700; }
+          .value { font-size: 14px; font-weight: 700; overflow-wrap: anywhere; word-break: break-word; }
           .nowrap { white-space: nowrap; }
-          .products table { width: 100%; border-collapse: collapse; }
+          .products table { width: 100%; border-collapse: collapse; table-layout: fixed; }
           .products th, .products td { border-right: 1px solid #222; border-top: 1px solid #222; padding: 4px; }
           .products th:last-child, .products td:last-child { border-right: 0; }
           .products th { text-align: left; font-size: 10px; text-transform: uppercase; }
+          .products td { overflow-wrap: anywhere; word-break: break-word; }
           .text-right { text-align: right; }
           .text-center { text-align: center; }
         </style>
@@ -443,12 +469,12 @@ export default function Orders() {
             </div>
             <div>
               <div class="company">Atacado e Cia</div>
-              <div class="seller">${escapeHtml(order.cashierId || 'BALCAO')}</div>
+              <div class="seller">${escapeHtml(source.cashierId || 'BALCAO')}</div>
             </div>
             <div class="center">
-              <div style="font-size:34px;font-weight:700;">Pedido</div>
-              <div class="big">${escapeHtml(orderNumber)}</div>
-              <div class="small">Emitido em ${escapeHtml(issueDate)}</div>
+              <div class="pdf-title">Pedido</div>
+              <div class="big order-code">${escapeHtml(orderNumber)}</div>
+              <div class="small">Emitido em ${escapeHtml(issueDateLabel)}<br/>${escapeHtml(issueTimeLabel)}</div>
               <div class="small nowrap"><strong>Folha 1 / 1</strong></div>
             </div>
           </div>
@@ -456,12 +482,12 @@ export default function Orders() {
           <div class="box">
             <div class="title" style="padding:4px 6px;">Cliente</div>
             <div class="row" style="grid-template-columns: 63% 14% 23%;">
-              <div class="cell"><span class="label">Nome / Razao Social</span><span class="value">${escapeHtml(customerName(order.customerId))}</span></div>
+              <div class="cell"><span class="label">Nome / Razao Social</span><span class="value">${escapeHtml(customerName(source.customerId))}</span></div>
               <div class="cell"><span class="label">Codigo</span><span class="value">${escapeHtml(orderNumber)}</span></div>
               <div class="cell"><span class="label">CNPJ / CPF</span><span class="value">000.000.000-00</span></div>
             </div>
             <div class="row" style="grid-template-columns: 100%;">
-              <div class="cell"><span class="label">Nome Fantasia</span><span class="value">${escapeHtml(customerName(order.customerId))}</span></div>
+              <div class="cell"><span class="label">Nome Fantasia</span><span class="value">${escapeHtml(customerName(source.customerId))}</span></div>
             </div>
             <div class="row" style="grid-template-columns: 63% 25% 12%;">
               <div class="cell"><span class="label">Endereco</span><span class="value">VENDA PRESENCIAL</span></div>
@@ -487,22 +513,22 @@ export default function Orders() {
           <div class="box">
             <div class="title" style="padding:4px 6px;">Outras Informacoes</div>
             <div class="row" style="grid-template-columns: 25% 25% 18% 32%;">
-              <div class="cell"><span class="label">Previsao Entrega</span><span class="value">${escapeHtml(issueDate.split(' ')[0] || issueDate)}</span></div>
+              <div class="cell"><span class="label">Previsao Entrega</span><span class="value">${escapeHtml(issueDateLabel)}</span></div>
               <div class="cell"><span class="label">Ordem de Compra</span><span class="value"></span></div>
               <div class="cell"><span class="label">Frete por Conta</span><span class="value"></span></div>
               <div class="cell"><span class="label">Transportadora</span><span class="value"></span></div>
             </div>
             <div class="row" style="grid-template-columns: 50% 27% 11% 12%;">
               <div class="cell"><span class="label">Tabela de Preco</span><span class="value">PADRAO</span></div>
-              <div class="cell"><span class="label">Forma de Pagamento</span><span class="value">${escapeHtml(order.paymentMethod || '-')}</span></div>
-              <div class="cell"><span class="label">Volumes</span><span class="value">${escapeHtml(String((order.items || []).length || 0))}</span></div>
-              <div class="cell"><span class="label">Itens</span><span class="value">${escapeHtml(String((order.items || []).length || 0))}</span></div>
+              <div class="cell"><span class="label">Forma de Pagamento</span><span class="value">${escapeHtml(source.paymentMethod || '-')}</span></div>
+              <div class="cell"><span class="label">Volumes</span><span class="value">${escapeHtml(String((source.items || []).length || 0))}</span></div>
+              <div class="cell"><span class="label">Itens</span><span class="value">${escapeHtml(String((source.items || []).length || 0))}</span></div>
             </div>
             <div class="row" style="grid-template-columns: 100%;">
-              <div class="cell"><span class="label">Condicao de Pagamento</span><span class="value">(0) ${escapeHtml(issueDate.split(' ')[0] || issueDate)}</span></div>
+              <div class="cell"><span class="label">Condicao de Pagamento</span><span class="value">(0) ${escapeHtml(issueDateLabel)}</span></div>
             </div>
             <div class="row" style="grid-template-columns: 100%;">
-              <div class="cell"><span class="label">Observacao</span><span class="value">${escapeHtml(order.notes || '')}</span></div>
+              <div class="cell"><span class="label">Observacao</span><span class="value">${escapeHtml(source.notes || '')}</span></div>
             </div>
           </div>
 
@@ -529,7 +555,7 @@ export default function Orders() {
       </html>
     `
 
-    const w = window.open('', '_blank', 'width=900,height=700')
+    const w = window.open('', `pedido-pdf-${orderId}-${Date.now()}`, 'width=900,height=700')
     if (!w) {
       alert('Permita pop-up para gerar o PDF')
       return
@@ -537,8 +563,10 @@ export default function Orders() {
 
     w.document.write(html)
     w.document.close()
-    w.focus()
-    w.print()
+    w.onload = () => {
+      w.focus()
+      w.print()
+    }
   }
 
   const filtered = list.filter((order) => {

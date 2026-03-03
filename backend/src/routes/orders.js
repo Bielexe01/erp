@@ -62,6 +62,13 @@ router.get('/', async (req, res) => {
   res.json(list)
 })
 
+router.get('/:id', async (req, res) => {
+  await db.read()
+  const order = (db.data.orders || []).find((x) => x.id === req.params.id)
+  if (!order) return res.status(404).json({ error: 'not found' })
+  res.json(order)
+})
+
 router.post('/', async (req, res) => {
   await db.read()
 

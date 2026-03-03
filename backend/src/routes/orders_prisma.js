@@ -89,6 +89,16 @@ router.get('/', async (req, res) => {
   res.json(orders)
 })
 
+router.get('/:id', async (req, res) => {
+  const order = await prisma.order.findUnique({
+    where: { id: req.params.id },
+    include: { items: true, payments: true }
+  })
+
+  if (!order) return res.status(404).json({ error: 'not found' })
+  res.json(order)
+})
+
 router.post('/', async (req, res) => {
   const { customerId, paymentMethod, paymentAmount, discount, cashierId } = req.body
   const items = normalizeItems(req.body.items)
