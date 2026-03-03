@@ -27,10 +27,14 @@ function normalizeDate(value) {
   return Number.isNaN(d.getTime()) ? null : d.toISOString()
 }
 
+function byOwner(item, userId) {
+  return item && item.ownerId === userId
+}
+
 router.get('/summary', async (req, res) => {
   await db.read()
   ensureStore()
-  const list = db.data.financeEntries || []
+  const list = (db.data.financeEntries || []).filter((item) => byOwner(item, req.user.id))
   const { startDate, endDate } = req.query
 
   const start = startDate ? new Date(startDate) : null
@@ -83,7 +87,7 @@ router.get('/summary', async (req, res) => {
 router.get('/', async (req, res) => {
   await db.read()
   ensureStore()
-  let list = db.data.financeEntries || []
+  let list = (db.data.financeEntries || []).filter((item) => byOwner(item, req.user.id))
   const { type, status, search, startDate, endDate } = req.query
 
   if (type) list = list.filter(item => item.type === type)
@@ -133,6 +137,7 @@ router.post('/', async (req, res) => {
   const now = new Date().toISOString()
   const entry = {
     id: nanoid(),
+    ownerId: req.user.id,
     type,
     description,
     category: category || '',
@@ -154,13 +159,14 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   await db.read()
   ensureStore()
-  const idx = (db.data.financeEntries || []).findIndex(item => item.id === req.params.id)
+  const idx = (db.data.financeEntries || []).findIndex((item) => item.id === req.params.id && byOwner(item, req.user.id))
   if (idx === -1) return res.status(404).json({ error: 'not found' })
 
   const current = db.data.financeEntries[idx]
   const merged = {
     ...current,
     ...req.body,
+    ownerId: current.ownerId,
     amount: req.body.amount !== undefined ? parseAmount(req.body.amount) : current.amount,
     dueDate: req.body.dueDate !== undefined ? normalizeDate(req.body.dueDate) : current.dueDate,
     status: req.body.status === 'paid' ? 'paid' : (req.body.status === 'open' ? 'open' : current.status),
@@ -182,7 +188,7 @@ router.put('/:id', async (req, res) => {
 router.patch('/:id/pay', async (req, res) => {
   await db.read()
   ensureStore()
-  const idx = (db.data.financeEntries || []).findIndex(item => item.id === req.params.id)
+  const idx = (db.data.financeEntries || []).findIndex((item) => item.id === req.params.id && byOwner(item, req.user.id))
   if (idx === -1) return res.status(404).json({ error: 'not found' })
 
   db.data.financeEntries[idx] = {
@@ -199,7 +205,10 @@ router.patch('/:id/pay', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   await db.read()
   ensureStore()
-  db.data.financeEntries = (db.data.financeEntries || []).filter(item => item.id !== req.params.id)
+  const exists = (db.data.financeEntries || []).some((item) => item.id === req.params.id && byOwner(item, req.user.id))
+  if (!exists) return res.status(404).json({ error: 'not found' })
+
+  db.data.financeEntries = (db.data.financeEntries || []).filter((item) => !(item.id === req.params.id && byOwner(item, req.user.id)))
   await db.write()
   res.json({ ok: true })
 })

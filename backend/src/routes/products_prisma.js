@@ -1,16 +1,23 @@
 const express = require('express')
 const router = express.Router()
 const prisma = require('../prismaClient')
+const auth = require('../middleware/auth')
+
+router.use(auth)
 
 router.get('/', async (req, res) => {
-  const products = await prisma.product.findMany()
+  const products = await prisma.product.findMany({
+    where: { ownerId: req.user.id },
+    orderBy: { createdAt: 'desc' }
+  })
   res.json(products)
 })
 
 router.post('/', async (req, res) => {
   const { sku, name, embalagem, qtdEmbalagem, custoBruto, percentMarkup, precoVenda, estoque, estoqueMinimo, validade, categoria, fornecedor, marca, gtin, comissao, observacao, foto } = req.body
-  const p = await prisma.product.create({ 
-    data: { 
+  const p = await prisma.product.create({
+    data: {
+      ownerId: req.user.id,
       sku,
       name, 
       embalagem: embalagem || 'UN',
@@ -35,13 +42,21 @@ router.post('/', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   const id = req.params.id
-  const data = req.body
+  const data = { ...req.body }
+  delete data.ownerId
+
+  const current = await prisma.product.findFirst({ where: { id, ownerId: req.user.id } })
+  if (!current) return res.status(404).json({ error: 'not found' })
+
   const updated = await prisma.product.update({ where: { id }, data })
   res.json(updated)
 })
 
 router.delete('/:id', async (req, res) => {
   const id = req.params.id
+  const current = await prisma.product.findFirst({ where: { id, ownerId: req.user.id } })
+  if (!current) return res.status(404).json({ error: 'not found' })
+
   await prisma.product.delete({ where: { id } })
   res.json({ ok: true })
 })

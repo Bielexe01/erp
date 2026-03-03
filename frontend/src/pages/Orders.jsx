@@ -25,6 +25,23 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;')
 }
 
+function formatCnpj(value) {
+  const digits = String(value || '').replace(/\D/g, '').slice(0, 14)
+  if (!digits) return ''
+
+  const p1 = digits.slice(0, 2)
+  const p2 = digits.slice(2, 5)
+  const p3 = digits.slice(5, 8)
+  const p4 = digits.slice(8, 12)
+  const p5 = digits.slice(12, 14)
+
+  if (digits.length <= 2) return p1
+  if (digits.length <= 5) return `${p1}.${p2}`
+  if (digits.length <= 8) return `${p1}.${p2}.${p3}`
+  if (digits.length <= 12) return `${p1}.${p2}.${p3}/${p4}`
+  return `${p1}.${p2}.${p3}/${p4}-${p5}`
+}
+
 function orderStatus(order) {
   if (order?.status) return order.status
   return order?.deleted ? 'canceled' : 'completed'
@@ -46,6 +63,7 @@ export default function Orders() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [includeCanceled, setIncludeCanceled] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [companyProfile, setCompanyProfile] = useState({ companyName: 'Atacado e Cia', companyCnpj: '' })
 
   const [editing, setEditing] = useState(null)
   const [draft, setDraft] = useState(null)
@@ -59,6 +77,10 @@ export default function Orders() {
   useEffect(() => {
     loadOrders()
   }, [search, statusFilter, includeCanceled])
+
+  useEffect(() => {
+    loadCompanyProfile()
+  }, [])
 
   async function loadLookups() {
     try {
@@ -93,6 +115,45 @@ export default function Orders() {
     } finally {
       setLoading(false)
     }
+  }
+
+  async function loadCompanyProfile() {
+    const fallback = { companyName: 'Atacado e Cia', companyCnpj: '' }
+    let current = { ...fallback }
+
+    function readStoredUser() {
+      try {
+        const raw = localStorage.getItem('pdv_user')
+        return raw ? JSON.parse(raw) : null
+      } catch (_) {
+        return null
+      }
+    }
+
+    try {
+      const parsed = readStoredUser()
+      if (parsed?.companyName) current.companyName = String(parsed.companyName)
+      if (parsed?.companyCnpj) current.companyCnpj = String(parsed.companyCnpj)
+    } catch (_) {
+      // keep fallback
+    }
+
+    try {
+      const res = await api.get('/auth/me')
+      if (res?.data?.id) {
+        const merged = {
+          companyName: String(res.data.companyName || current.companyName || fallback.companyName),
+          companyCnpj: String(res.data.companyCnpj || current.companyCnpj || '')
+        }
+        setCompanyProfile(merged)
+        localStorage.setItem('pdv_user', JSON.stringify({ ...(readStoredUser() || {}), ...res.data }))
+        return
+      }
+    } catch (_) {
+      // fallback to cached data
+    }
+
+    setCompanyProfile(current)
   }
 
   function customerName(customerId) {
@@ -422,6 +483,11 @@ export default function Orders() {
       .replace(/[^a-zA-Z0-9]/g, '')
       .toUpperCase()
       .slice(0, 8) || '-'
+    const companyName = String(companyProfile.companyName || 'Atacado e Cia').trim() || 'Atacado e Cia'
+    const companyCnpj = formatCnpj(companyProfile.companyCnpj)
+    const companyMarkLines = companyName.split(/\s+/).filter(Boolean).slice(0, 2)
+    const companyMarkHtml = (companyMarkLines.length ? companyMarkLines : [companyName]).map((part) => escapeHtml(part)).join('<br/>')
+    const companyCnpjHtml = companyCnpj ? `<div class="small"><strong>CNPJ</strong> ${escapeHtml(companyCnpj)}</div>` : ''
 
     const html = `
       <html>
@@ -465,11 +531,12 @@ export default function Orders() {
         <div class="sheet">
           <div class="box header-grid">
             <div>
-              <div class="logo">ATACADO<br/>& CIA</div>
+              <div class="logo">${companyMarkHtml}</div>
             </div>
             <div>
-              <div class="company">Atacado e Cia</div>
+              <div class="company">${escapeHtml(companyName)}</div>
               <div class="seller">${escapeHtml(source.cashierId || 'BALCAO')}</div>
+              ${companyCnpjHtml}
             </div>
             <div class="center">
               <div class="pdf-title">Pedido</div>

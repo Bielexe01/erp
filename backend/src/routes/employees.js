@@ -24,12 +24,17 @@ function normalizeDate(value) {
   return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10)
 }
 
+function byOwner(item, userId) {
+  return item && item.ownerId === userId
+}
+
 router.get('/', async (req, res) => {
   await db.read()
   ensureStore()
 
+  const userId = req.user.id
   const search = String(req.query.search || '').toLowerCase()
-  let list = db.data.employees || []
+  let list = (db.data.employees || []).filter((emp) => byOwner(emp, userId))
 
   if (search) {
     list = list.filter(emp =>
@@ -55,6 +60,7 @@ router.post('/', async (req, res) => {
 
   const employee = {
     id: nanoid(),
+    ownerId: req.user.id,
     name: String(name).trim(),
     role: String(role || '').trim(),
     hireDate: normalizeDate(hireDate),
@@ -75,13 +81,14 @@ router.put('/:id', async (req, res) => {
   await db.read()
   ensureStore()
 
-  const idx = db.data.employees.findIndex(emp => emp.id === req.params.id)
+  const idx = (db.data.employees || []).findIndex((emp) => emp.id === req.params.id && byOwner(emp, req.user.id))
   if (idx === -1) return res.status(404).json({ error: 'not found' })
 
   const current = db.data.employees[idx]
   const updated = {
     ...current,
     ...req.body,
+    ownerId: current.ownerId,
     name: String(req.body.name ?? current.name ?? '').trim(),
     role: String(req.body.role ?? current.role ?? '').trim(),
     hireDate: req.body.hireDate !== undefined ? normalizeDate(req.body.hireDate) : current.hireDate,
@@ -105,7 +112,10 @@ router.delete('/:id', async (req, res) => {
   await db.read()
   ensureStore()
 
-  db.data.employees = db.data.employees.filter(emp => emp.id !== req.params.id)
+  const exists = (db.data.employees || []).some((emp) => emp.id === req.params.id && byOwner(emp, req.user.id))
+  if (!exists) return res.status(404).json({ error: 'not found' })
+
+  db.data.employees = (db.data.employees || []).filter((emp) => !(emp.id === req.params.id && byOwner(emp, req.user.id)))
   await db.write()
   res.json({ ok: true })
 })

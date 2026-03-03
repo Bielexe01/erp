@@ -18,6 +18,18 @@ export default function Login() {
     try {
       const res = await api.post('/auth/login', { username, password })
       localStorage.setItem('pdv_token', res.data.token)
+      if (res?.data?.user) {
+        localStorage.setItem('pdv_user', JSON.stringify(res.data.user))
+      } else {
+        try {
+          const me = await api.get('/auth/me')
+          if (me?.data?.id) {
+            localStorage.setItem('pdv_user', JSON.stringify(me.data))
+          }
+        } catch (_) {
+          // keep login flow even if /me fails
+        }
+      }
       localStorage.setItem('pdv_remember', rememberMe ? '1' : '0')
       navigate('/')
     } catch (err) {

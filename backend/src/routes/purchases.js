@@ -34,12 +34,17 @@ function normalizeDate(value) {
   return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString()
 }
 
+function byOwner(item, userId) {
+  return item && item.ownerId === userId
+}
+
 router.get('/', async (req, res) => {
   await db.read()
   ensureStore()
 
+  const userId = req.user.id
   const { supplierId, search, startDate, endDate } = req.query
-  let list = db.data.purchases || []
+  let list = (db.data.purchases || []).filter((purchase) => byOwner(purchase, userId))
 
   if (supplierId) list = list.filter(p => p.supplierId === supplierId)
 
@@ -94,12 +99,18 @@ router.post('/', async (req, res) => {
   const total = subtotal + extraCosts
   const totalQty = parsedItems.reduce((sum, item) => sum + item.quantity, 0)
 
-  const supplier = db.data.suppliers.find(s => s.id === supplierId)
+  let supplier = null
+  if (supplierId) {
+    supplier = (db.data.suppliers || []).find((s) => s.id === supplierId && byOwner(s, req.user.id))
+    if (!supplier) {
+      return res.status(400).json({ error: 'supplier not found' })
+    }
+  }
 
   const detailedItems = []
 
   for (const item of parsedItems) {
-    const productIdx = db.data.products.findIndex(p => p.id === item.productId)
+    const productIdx = (db.data.products || []).findIndex((p) => p.id === item.productId && byOwner(p, req.user.id))
     if (productIdx === -1) {
       return res.status(400).json({ error: `product not found: ${item.productId}` })
     }
@@ -146,6 +157,7 @@ router.post('/', async (req, res) => {
 
   const purchase = {
     id: nanoid(),
+    ownerId: req.user.id,
     supplierId: supplierId || null,
     supplierName: supplier ? supplier.name : 'Sem fornecedor',
     invoiceNumber: String(invoiceNumber || '').trim(),

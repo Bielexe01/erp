@@ -18,12 +18,17 @@ function ensureStore() {
   if (!db.data.purchases) db.data.purchases = []
 }
 
+function byOwner(item, userId) {
+  return item && item.ownerId === userId
+}
+
 router.get('/', async (req, res) => {
   await db.read()
   ensureStore()
 
+  const userId = req.user.id
   const q = String(req.query.search || '').toLowerCase()
-  let list = db.data.suppliers
+  let list = (db.data.suppliers || []).filter((supplier) => byOwner(supplier, userId))
 
   if (q) {
     list = list.filter(s =>
@@ -50,6 +55,7 @@ router.post('/', async (req, res) => {
 
   const supplier = {
     id: nanoid(),
+    ownerId: req.user.id,
     name: String(name).trim(),
     document: String(document || '').trim(),
     email: String(email || '').trim(),
@@ -69,13 +75,14 @@ router.put('/:id', async (req, res) => {
   await db.read()
   ensureStore()
 
-  const idx = db.data.suppliers.findIndex(s => s.id === req.params.id)
+  const idx = (db.data.suppliers || []).findIndex((s) => s.id === req.params.id && byOwner(s, req.user.id))
   if (idx === -1) return res.status(404).json({ error: 'not found' })
 
   const current = db.data.suppliers[idx]
   const updated = {
     ...current,
     ...req.body,
+    ownerId: current.ownerId,
     name: String(req.body.name ?? current.name ?? '').trim(),
     document: String(req.body.document ?? current.document ?? '').trim(),
     email: String(req.body.email ?? current.email ?? '').trim(),
@@ -99,12 +106,15 @@ router.delete('/:id', async (req, res) => {
   ensureStore()
 
   const supplierId = req.params.id
-  const used = (db.data.purchases || []).some(p => p.supplierId === supplierId)
+  const used = (db.data.purchases || []).some((p) => p.supplierId === supplierId && byOwner(p, req.user.id))
   if (used) {
     return res.status(400).json({ error: 'supplier has purchases and cannot be removed' })
   }
 
-  db.data.suppliers = db.data.suppliers.filter(s => s.id !== supplierId)
+  const exists = (db.data.suppliers || []).some((s) => s.id === supplierId && byOwner(s, req.user.id))
+  if (!exists) return res.status(404).json({ error: 'not found' })
+
+  db.data.suppliers = (db.data.suppliers || []).filter((s) => !(s.id === supplierId && byOwner(s, req.user.id)))
   await db.write()
   res.json({ ok: true })
 })

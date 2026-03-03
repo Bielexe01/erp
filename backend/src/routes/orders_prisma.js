@@ -1,6 +1,9 @@
-﻿const express = require('express')
+const express = require('express')
 const router = express.Router()
 const prisma = require('../prismaClient')
+const auth = require('../middleware/auth')
+
+router.use(auth)
 
 function toNumber(value, fallback = 0) {
   const n = Number(value)
@@ -37,7 +40,24 @@ function mapQuantity(items) {
   return out
 }
 
-async function applyStockDiff(tx, previousItems, previousStatus, nextItems, nextStatus) {
+async function ensureOwnedCustomer(ownerId, customerId) {
+  if (!customerId) return true
+  const customer = await prisma.customer.findFirst({ where: { id: customerId, ownerId } })
+  return !!customer
+}
+
+async function ensureOwnedProducts(ownerId, items) {
+  const productIds = [...new Set((items || []).map((item) => item.productId).filter(Boolean))]
+  if (productIds.length === 0) return true
+
+  const ownedProducts = await prisma.product.findMany({
+    where: { ownerId, id: { in: productIds } },
+    select: { id: true }
+  })
+  return ownedProducts.length === productIds.length
+}
+
+async function applyStockDiff(tx, ownerId, previousItems, previousStatus, nextItems, nextStatus) {
   const prevMap = previousStatus === 'completed' ? mapQuantity(previousItems) : {}
   const nextMap = nextStatus === 'completed' ? mapQuantity(nextItems) : {}
   const productIds = new Set([...Object.keys(prevMap), ...Object.keys(nextMap)])
@@ -45,25 +65,28 @@ async function applyStockDiff(tx, previousItems, previousStatus, nextItems, next
   for (const productId of productIds) {
     const diff = toNumber(nextMap[productId], 0) - toNumber(prevMap[productId], 0)
     if (diff > 0) {
-      await tx.product.update({
-        where: { id: productId },
+      const changed = await tx.product.updateMany({
+        where: { id: productId, ownerId },
         data: { estoque: { decrement: diff } }
       })
+      if (changed.count === 0) throw new Error(`product not found: ${productId}`)
     } else if (diff < 0) {
-      await tx.product.update({
-        where: { id: productId },
+      const changed = await tx.product.updateMany({
+        where: { id: productId, ownerId },
         data: { estoque: { increment: Math.abs(diff) } }
       })
+      if (changed.count === 0) throw new Error(`product not found: ${productId}`)
     }
   }
 }
 
 router.get('/', async (req, res) => {
+  const ownerId = req.user.id
   const statusFilter = String(req.query.status || '')
   const includeDeleted = String(req.query.includeDeleted || '').toLowerCase() === 'true'
   const search = String(req.query.search || '').trim()
 
-  const where = {}
+  const where = { ownerId }
 
   if (statusFilter) {
     where.status = normalizeStatus(statusFilter, '')
@@ -90,8 +113,8 @@ router.get('/', async (req, res) => {
 })
 
 router.get('/:id', async (req, res) => {
-  const order = await prisma.order.findUnique({
-    where: { id: req.params.id },
+  const order = await prisma.order.findFirst({
+    where: { id: req.params.id, ownerId: req.user.id },
     include: { items: true, payments: true }
   })
 
@@ -100,6 +123,7 @@ router.get('/:id', async (req, res) => {
 })
 
 router.post('/', async (req, res) => {
+  const ownerId = req.user.id
   const { customerId, paymentMethod, paymentAmount, discount, cashierId } = req.body
   const items = normalizeItems(req.body.items)
   if (items.length === 0) {
@@ -108,6 +132,14 @@ router.post('/', async (req, res) => {
 
   const status = normalizeStatus(req.body.status, 'completed')
 
+  if (!(await ensureOwnedCustomer(ownerId, customerId))) {
+    return res.status(400).json({ error: 'customer not found' })
+  }
+
+  if (!(await ensureOwnedProducts(ownerId, items))) {
+    return res.status(400).json({ error: 'one or more products not found' })
+  }
+
   const created = await prisma.$transaction(async (tx) => {
     const total = calcSubtotal(items)
     const disc = toNumber(discount, 0)
@@ -115,6 +147,7 @@ router.post('/', async (req, res) => {
 
     const order = await tx.order.create({
       data: {
+        ownerId,
         customerId: customerId || null,
         total,
         discount: disc,
@@ -136,10 +169,11 @@ router.post('/', async (req, res) => {
       })
 
       if (status === 'completed') {
-        await tx.product.update({
-          where: { id: item.productId },
+        const changed = await tx.product.updateMany({
+          where: { id: item.productId, ownerId },
           data: { estoque: { decrement: item.quantity } }
         })
+        if (changed.count === 0) throw new Error(`product not found: ${item.productId}`)
       }
     }
 
@@ -161,12 +195,21 @@ router.post('/', async (req, res) => {
 })
 
 router.put('/:id', async (req, res) => {
+  const ownerId = req.user.id
   const id = req.params.id
   const { customerId, paymentMethod, paymentAmount, discount, status, cashierId } = req.body
   const nextItemsInput = req.body.items !== undefined ? normalizeItems(req.body.items) : null
 
+  if (customerId !== undefined && !(await ensureOwnedCustomer(ownerId, customerId))) {
+    return res.status(400).json({ error: 'customer not found' })
+  }
+
+  if (nextItemsInput && !(await ensureOwnedProducts(ownerId, nextItemsInput))) {
+    return res.status(400).json({ error: 'one or more products not found' })
+  }
+
   const updated = await prisma.$transaction(async (tx) => {
-    const current = await tx.order.findUnique({ where: { id }, include: { items: true } })
+    const current = await tx.order.findFirst({ where: { id, ownerId }, include: { items: true } })
     if (!current) return null
 
     const currentItems = (current.items || []).map((item) => ({
@@ -180,7 +223,7 @@ router.put('/:id', async (req, res) => {
       ? normalizeStatus(status, current.status || 'completed')
       : current.status
 
-    await applyStockDiff(tx, currentItems, current.status, nextItems, nextStatus)
+    await applyStockDiff(tx, ownerId, currentItems, current.status, nextItems, nextStatus)
 
     if (nextItemsInput) {
       await tx.orderItem.deleteMany({ where: { orderId: id } })
@@ -233,11 +276,12 @@ router.put('/:id', async (req, res) => {
 })
 
 router.patch('/:id/status', async (req, res) => {
+  const ownerId = req.user.id
   const id = req.params.id
   const status = normalizeStatus(req.body.status, 'completed')
 
   const updated = await prisma.$transaction(async (tx) => {
-    const current = await tx.order.findUnique({ where: { id }, include: { items: true } })
+    const current = await tx.order.findFirst({ where: { id, ownerId }, include: { items: true } })
     if (!current) return null
 
     const currentItems = (current.items || []).map((item) => ({
@@ -246,7 +290,7 @@ router.patch('/:id/status', async (req, res) => {
       price: toNumber(item.price, 0)
     }))
 
-    await applyStockDiff(tx, currentItems, current.status, currentItems, status)
+    await applyStockDiff(tx, ownerId, currentItems, current.status, currentItems, status)
     await tx.order.update({ where: { id }, data: { status } })
 
     return tx.order.findUnique({ where: { id }, include: { items: true, payments: true } })
@@ -257,10 +301,11 @@ router.patch('/:id/status', async (req, res) => {
 })
 
 router.patch('/:id/restore', async (req, res) => {
+  const ownerId = req.user.id
   const id = req.params.id
 
   const updated = await prisma.$transaction(async (tx) => {
-    const current = await tx.order.findUnique({ where: { id }, include: { items: true } })
+    const current = await tx.order.findFirst({ where: { id, ownerId }, include: { items: true } })
     if (!current) return null
 
     const targetStatus = current.status === 'canceled' ? 'completed' : current.status
@@ -270,7 +315,7 @@ router.patch('/:id/restore', async (req, res) => {
       price: toNumber(item.price, 0)
     }))
 
-    await applyStockDiff(tx, currentItems, current.status, currentItems, targetStatus)
+    await applyStockDiff(tx, ownerId, currentItems, current.status, currentItems, targetStatus)
     await tx.order.update({ where: { id }, data: { status: targetStatus } })
 
     return tx.order.findUnique({ where: { id }, include: { items: true, payments: true } })
@@ -281,14 +326,16 @@ router.patch('/:id/restore', async (req, res) => {
 })
 
 router.post('/:id/duplicate', async (req, res) => {
+  const ownerId = req.user.id
   const id = req.params.id
 
   const duplicated = await prisma.$transaction(async (tx) => {
-    const current = await tx.order.findUnique({ where: { id }, include: { items: true, payments: true } })
+    const current = await tx.order.findFirst({ where: { id, ownerId }, include: { items: true, payments: true } })
     if (!current) return null
 
     const order = await tx.order.create({
       data: {
+        ownerId: current.ownerId,
         customerId: current.customerId || null,
         total: toNumber(current.total, 0),
         discount: toNumber(current.discount, 0),
@@ -318,13 +365,14 @@ router.post('/:id/duplicate', async (req, res) => {
 })
 
 router.delete('/:id', async (req, res) => {
+  const ownerId = req.user.id
   const id = req.params.id
   const hardDelete = String(req.query.hard || '').toLowerCase() === 'true'
 
   if (hardDelete) {
-    await prisma.$transaction(async (tx) => {
-      const current = await tx.order.findUnique({ where: { id }, include: { items: true } })
-      if (!current) return
+    const removed = await prisma.$transaction(async (tx) => {
+      const current = await tx.order.findFirst({ where: { id, ownerId }, include: { items: true } })
+      if (!current) return false
 
       const currentItems = (current.items || []).map((item) => ({
         productId: item.productId,
@@ -332,17 +380,19 @@ router.delete('/:id', async (req, res) => {
         price: toNumber(item.price, 0)
       }))
 
-      await applyStockDiff(tx, currentItems, current.status, [], 'canceled')
+      await applyStockDiff(tx, ownerId, currentItems, current.status, [], 'canceled')
       await tx.payment.deleteMany({ where: { orderId: id } })
       await tx.orderItem.deleteMany({ where: { orderId: id } })
       await tx.order.delete({ where: { id } })
+      return true
     })
 
+    if (!removed) return res.status(404).json({ error: 'not found' })
     return res.json({ ok: true, hard: true })
   }
 
   const updated = await prisma.$transaction(async (tx) => {
-    const current = await tx.order.findUnique({ where: { id }, include: { items: true } })
+    const current = await tx.order.findFirst({ where: { id, ownerId }, include: { items: true } })
     if (!current) return null
 
     const currentItems = (current.items || []).map((item) => ({
@@ -351,7 +401,7 @@ router.delete('/:id', async (req, res) => {
       price: toNumber(item.price, 0)
     }))
 
-    await applyStockDiff(tx, currentItems, current.status, currentItems, 'canceled')
+    await applyStockDiff(tx, ownerId, currentItems, current.status, currentItems, 'canceled')
     await tx.order.update({ where: { id }, data: { status: 'canceled' } })
 
     return tx.order.findUnique({ where: { id }, include: { items: true, payments: true } })

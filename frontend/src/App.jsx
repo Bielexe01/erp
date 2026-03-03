@@ -39,11 +39,19 @@ function MenuStatic({ label }) {
 
 function App() {
   const token = localStorage.getItem('pdv_token')
+  let sessionUser = null
+  try {
+    sessionUser = JSON.parse(localStorage.getItem('pdv_user') || 'null')
+  } catch (_) {
+    sessionUser = null
+  }
+
   const navigate = useNavigate()
   const location = useLocation()
 
   function logout() {
     localStorage.removeItem('pdv_token')
+    localStorage.removeItem('pdv_user')
     navigate('/login')
   }
 
@@ -88,7 +96,7 @@ function App() {
         <div className="topbar-right">
           <div className="top-pill">Operacao online</div>
           <div className="top-pill">Sincronizacao ativa</div>
-          <div className="top-user">Usuario autenticado</div>
+          <div className="top-user">{sessionUser?.companyName || sessionUser?.username || 'Usuario autenticado'}</div>
           <button type="button" className="top-logout" onClick={logout}>Sair</button>
         </div>
       </header>

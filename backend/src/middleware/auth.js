@@ -13,7 +13,12 @@ module.exports = async function auth(req, res, next) {
     await db.read()
     const user = db.data.users.find(u => u.id === payload.sub)
     if (!user) return res.status(401).json({ error: 'invalid token' })
-    req.user = { id: user.id, username: user.username }
+    req.user = {
+      id: user.id,
+      username: user.username,
+      companyName: user.companyName || '',
+      companyCnpj: user.companyCnpj || ''
+    }
     next()
   } catch (err) {
     return res.status(401).json({ error: 'invalid token' })

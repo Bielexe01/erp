@@ -1,4 +1,4 @@
-﻿const express = require('express')
+const express = require('express')
 const { nanoid } = require('nanoid')
 const { db } = require('../db')
 const auth = require('../middleware/auth')
@@ -12,10 +12,24 @@ function ensureStore() {
   if (!db.data.pdvConfigs) db.data.pdvConfigs = []
 }
 
-function normalizeConfig(input, current = null) {
+function byOwner(item, userId) {
+  return item && item.ownerId === userId
+}
+
+function getOwnedConfigs(userId) {
+  return (db.data.pdvConfigs || []).filter((cfg) => byOwner(cfg, userId))
+}
+
+function setOwnedConfigs(userId, ownedConfigs) {
+  const others = (db.data.pdvConfigs || []).filter((cfg) => !byOwner(cfg, userId))
+  db.data.pdvConfigs = [...others, ...ownedConfigs]
+}
+
+function normalizeConfig(input, current = null, ownerId = '') {
   const now = new Date().toISOString()
   const cfg = {
     id: current?.id || nanoid(),
+    ownerId: current?.ownerId || ownerId,
     name: String(input.name ?? current?.name ?? '').trim(),
     represented: String(input.represented ?? current?.represented ?? '').trim(),
     priceTable: String(input.priceTable ?? current?.priceTable ?? '').trim(),
@@ -63,12 +77,14 @@ router.get('/', async (req, res) => {
   await db.read()
   ensureStore()
 
+  const userId = req.user.id
   const includeExcluded = String(req.query.includeExcluded || '').toLowerCase() === 'true'
   const search = String(req.query.search || '').toLowerCase().trim()
 
-  db.data.pdvConfigs = enforceDefault(db.data.pdvConfigs || [])
+  const owned = enforceDefault(getOwnedConfigs(userId))
+  setOwnedConfigs(userId, owned)
 
-  let list = [...(db.data.pdvConfigs || [])]
+  let list = [...owned]
   if (!includeExcluded) {
     list = list.filter((item) => item.excluded !== true)
   }
@@ -90,87 +106,100 @@ router.post('/', async (req, res) => {
   await db.read()
   ensureStore()
 
-  const cfg = normalizeConfig(req.body)
+  const userId = req.user.id
+  const owned = getOwnedConfigs(userId)
+  const cfg = normalizeConfig(req.body, null, userId)
   if (!cfg.name) {
     return res.status(400).json({ error: 'name is required' })
   }
 
-  db.data.pdvConfigs.push(cfg)
-  db.data.pdvConfigs = enforceDefault(db.data.pdvConfigs)
+  owned.push(cfg)
+  setOwnedConfigs(userId, enforceDefault(owned))
 
   await db.write()
-  res.status(201).json(db.data.pdvConfigs.find((x) => x.id === cfg.id))
+  res.status(201).json((db.data.pdvConfigs || []).find((x) => x.id === cfg.id && byOwner(x, userId)))
 })
 
 router.put('/:id', async (req, res) => {
   await db.read()
   ensureStore()
 
-  const idx = (db.data.pdvConfigs || []).findIndex((x) => x.id === req.params.id)
+  const userId = req.user.id
+  const owned = getOwnedConfigs(userId)
+  const idx = owned.findIndex((x) => x.id === req.params.id)
   if (idx === -1) return res.status(404).json({ error: 'not found' })
 
-  const current = db.data.pdvConfigs[idx]
-  const updated = normalizeConfig(req.body, current)
+  const current = owned[idx]
+  const updated = normalizeConfig(req.body, current, userId)
   if (!updated.name) {
     return res.status(400).json({ error: 'name is required' })
   }
 
-  db.data.pdvConfigs[idx] = updated
-  db.data.pdvConfigs = enforceDefault(db.data.pdvConfigs)
+  owned[idx] = updated
+  setOwnedConfigs(userId, enforceDefault(owned))
 
   await db.write()
-  res.json(db.data.pdvConfigs.find((x) => x.id === updated.id))
+  res.json((db.data.pdvConfigs || []).find((x) => x.id === updated.id && byOwner(x, userId)))
 })
 
 router.patch('/:id/default', async (req, res) => {
   await db.read()
   ensureStore()
 
-  const idx = (db.data.pdvConfigs || []).findIndex((x) => x.id === req.params.id)
+  const userId = req.user.id
+  const owned = getOwnedConfigs(userId)
+  const idx = owned.findIndex((x) => x.id === req.params.id)
   if (idx === -1) return res.status(404).json({ error: 'not found' })
 
-  const current = db.data.pdvConfigs[idx]
+  const current = owned[idx]
   if (current.excluded) {
     return res.status(400).json({ error: 'excluded config cannot be default' })
   }
 
-  db.data.pdvConfigs = (db.data.pdvConfigs || []).map((cfg) => ({
+  const updatedOwned = owned.map((cfg) => ({
     ...cfg,
     isDefault: cfg.id === req.params.id,
     updatedAt: cfg.id === req.params.id ? new Date().toISOString() : cfg.updatedAt
   }))
 
-  db.data.pdvConfigs = enforceDefault(db.data.pdvConfigs)
+  setOwnedConfigs(userId, enforceDefault(updatedOwned))
   await db.write()
 
-  res.json(db.data.pdvConfigs.find((x) => x.id === req.params.id))
+  res.json((db.data.pdvConfigs || []).find((x) => x.id === req.params.id && byOwner(x, userId)))
 })
 
 router.patch('/:id/excluded', async (req, res) => {
   await db.read()
   ensureStore()
 
-  const idx = (db.data.pdvConfigs || []).findIndex((x) => x.id === req.params.id)
+  const userId = req.user.id
+  const owned = getOwnedConfigs(userId)
+  const idx = owned.findIndex((x) => x.id === req.params.id)
   if (idx === -1) return res.status(404).json({ error: 'not found' })
 
-  const current = db.data.pdvConfigs[idx]
-  db.data.pdvConfigs[idx] = {
+  const current = owned[idx]
+  owned[idx] = {
     ...current,
     excluded: !!req.body.excluded,
     updatedAt: new Date().toISOString()
   }
 
-  db.data.pdvConfigs = enforceDefault(db.data.pdvConfigs)
+  setOwnedConfigs(userId, enforceDefault(owned))
   await db.write()
-  res.json(db.data.pdvConfigs[idx])
+  res.json((db.data.pdvConfigs || []).find((x) => x.id === req.params.id && byOwner(x, userId)))
 })
 
 router.delete('/:id', async (req, res) => {
   await db.read()
   ensureStore()
 
-  db.data.pdvConfigs = (db.data.pdvConfigs || []).filter((x) => x.id !== req.params.id)
-  db.data.pdvConfigs = enforceDefault(db.data.pdvConfigs)
+  const userId = req.user.id
+  const owned = getOwnedConfigs(userId)
+  const exists = owned.some((x) => x.id === req.params.id)
+  if (!exists) return res.status(404).json({ error: 'not found' })
+
+  const filteredOwned = owned.filter((x) => x.id !== req.params.id)
+  setOwnedConfigs(userId, enforceDefault(filteredOwned))
 
   await db.write()
   res.json({ ok: true })

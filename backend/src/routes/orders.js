@@ -32,14 +32,33 @@ function normalizeStatus(value, fallback = 'completed') {
   return fallback
 }
 
+function byOwner(item, userId) {
+  return item && item.ownerId === userId
+}
+
+function findOrderIndex(id, userId) {
+  return (db.data.orders || []).findIndex((x) => x.id === id && byOwner(x, userId))
+}
+
+function hasCustomer(customerId, userId) {
+  if (!customerId) return true
+  return (db.data.customers || []).some((c) => c.id === customerId && byOwner(c, userId))
+}
+
+function hasProducts(items, userId) {
+  if (!Array.isArray(items)) return false
+  return items.every((item) => (db.data.products || []).some((p) => p.id === item.productId && byOwner(p, userId)))
+}
+
 router.get('/', async (req, res) => {
   await db.read()
+  const userId = req.user.id
 
   const statusFilter = req.query.status || ''
   const includeDeleted = String(req.query.includeDeleted || '').toLowerCase() === 'true'
   const search = String(req.query.search || '').toLowerCase().trim()
 
-  let list = [...(db.data.orders || [])]
+  let list = (db.data.orders || []).filter((order) => byOwner(order, userId))
 
   if (!includeDeleted) {
     list = list.filter((order) => order.deleted !== true)
@@ -64,17 +83,26 @@ router.get('/', async (req, res) => {
 
 router.get('/:id', async (req, res) => {
   await db.read()
-  const order = (db.data.orders || []).find((x) => x.id === req.params.id)
+  const order = (db.data.orders || []).find((x) => x.id === req.params.id && byOwner(x, req.user.id))
   if (!order) return res.status(404).json({ error: 'not found' })
   res.json(order)
 })
 
 router.post('/', async (req, res) => {
   await db.read()
+  const userId = req.user.id
 
   const items = normalizeItems(req.body.items)
   if (items.length === 0) {
     return res.status(400).json({ error: 'items are required' })
+  }
+
+  if (!hasProducts(items, userId)) {
+    return res.status(400).json({ error: 'one or more products not found' })
+  }
+
+  if (!hasCustomer(req.body.customerId, userId)) {
+    return res.status(400).json({ error: 'customer not found' })
   }
 
   const subtotal = calcSubtotal(items)
@@ -83,6 +111,7 @@ router.post('/', async (req, res) => {
 
   const order = {
     id: nanoid(),
+    ownerId: userId,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     deletedAt: null,
@@ -105,19 +134,28 @@ router.post('/', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   await db.read()
+  const userId = req.user.id
 
-  const idx = (db.data.orders || []).findIndex((x) => x.id === req.params.id)
+  const idx = findOrderIndex(req.params.id, userId)
   if (idx === -1) return res.status(404).json({ error: 'not found' })
 
   const current = db.data.orders[idx]
+  if (req.body.customerId !== undefined && !hasCustomer(req.body.customerId, userId)) {
+    return res.status(400).json({ error: 'customer not found' })
+  }
+
   const merged = {
     ...current,
     ...req.body,
+    ownerId: current.ownerId,
     updatedAt: new Date().toISOString()
   }
 
   if (req.body.items !== undefined) {
     merged.items = normalizeItems(req.body.items)
+    if (!hasProducts(merged.items, userId)) {
+      return res.status(400).json({ error: 'one or more products not found' })
+    }
   }
 
   const subtotal = req.body.total !== undefined ? toNumber(req.body.total, 0) : calcSubtotal(merged.items)
@@ -148,7 +186,7 @@ router.put('/:id', async (req, res) => {
 
 router.patch('/:id/status', async (req, res) => {
   await db.read()
-  const idx = (db.data.orders || []).findIndex((x) => x.id === req.params.id)
+  const idx = findOrderIndex(req.params.id, req.user.id)
   if (idx === -1) return res.status(404).json({ error: 'not found' })
 
   const nextStatus = normalizeStatus(req.body.status, db.data.orders[idx].status || 'completed')
@@ -166,7 +204,7 @@ router.patch('/:id/status', async (req, res) => {
 
 router.patch('/:id/restore', async (req, res) => {
   await db.read()
-  const idx = (db.data.orders || []).findIndex((x) => x.id === req.params.id)
+  const idx = findOrderIndex(req.params.id, req.user.id)
   if (idx === -1) return res.status(404).json({ error: 'not found' })
 
   db.data.orders[idx] = {
@@ -183,7 +221,7 @@ router.patch('/:id/restore', async (req, res) => {
 
 router.post('/:id/duplicate', async (req, res) => {
   await db.read()
-  const current = (db.data.orders || []).find((x) => x.id === req.params.id)
+  const current = (db.data.orders || []).find((x) => x.id === req.params.id && byOwner(x, req.user.id))
   if (!current) return res.status(404).json({ error: 'not found' })
 
   const items = normalizeItems(current.items)
@@ -193,6 +231,7 @@ router.post('/:id/duplicate', async (req, res) => {
   const duplicated = {
     ...current,
     id: nanoid(),
+    ownerId: current.ownerId,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     deleted: false,
@@ -210,16 +249,20 @@ router.post('/:id/duplicate', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   await db.read()
+  const userId = req.user.id
 
   const hardDelete = String(req.query.hard || '').toLowerCase() === 'true'
 
   if (hardDelete) {
-    db.data.orders = (db.data.orders || []).filter((x) => x.id !== req.params.id)
+    const exists = (db.data.orders || []).some((x) => x.id === req.params.id && byOwner(x, userId))
+    if (!exists) return res.status(404).json({ error: 'not found' })
+
+    db.data.orders = (db.data.orders || []).filter((x) => !(x.id === req.params.id && byOwner(x, userId)))
     await db.write()
     return res.json({ ok: true, hard: true })
   }
 
-  const idx = (db.data.orders || []).findIndex((x) => x.id === req.params.id)
+  const idx = findOrderIndex(req.params.id, userId)
   if (idx === -1) return res.status(404).json({ error: 'not found' })
 
   db.data.orders[idx] = {
