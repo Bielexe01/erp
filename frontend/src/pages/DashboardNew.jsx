@@ -126,22 +126,24 @@ export default function Dashboard(){
 
           <div className="report-section">
             <h3>Últimas Transações</h3>
-            <table className="table">
-              <thead><tr><th>Data/Hora</th><th>Cliente</th><th>Itens</th><th>Subtotal</th><th>Desconto</th><th>Total</th><th>Pagamento</th></tr></thead>
-              <tbody>
-                {(stats.filtered || []).slice(0, 20).map(o=> (
-                  <tr key={o.id}>
-                    <td>{new Date(o.createdAt).toLocaleString('pt-BR')}</td>
-                    <td>{o.customerId || 'Consumidor Final'}</td>
-                    <td>{(o.items||[]).length}</td>
-                    <td>R$ {Number(o.total||0).toFixed(2)}</td>
-                    <td>R$ {Number(o.discount||0).toFixed(2)}</td>
-                    <td><strong>R$ {Number(o.paymentAmount||0).toFixed(2)}</strong></td>
-                    <td>{o.paymentMethod || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="table-responsive">
+              <table className="table">
+                <thead><tr><th>Data/Hora</th><th>Cliente</th><th>Itens</th><th>Subtotal</th><th>Desconto</th><th>Total</th><th>Pagamento</th></tr></thead>
+                <tbody>
+                  {(stats.filtered || []).slice(0, 20).map(o=> (
+                    <tr key={o.id}>
+                      <td>{new Date(o.createdAt).toLocaleString('pt-BR')}</td>
+                      <td>{o.customerId || 'Consumidor Final'}</td>
+                      <td>{(o.items||[]).length}</td>
+                      <td>R$ {Number(o.total||0).toFixed(2)}</td>
+                      <td>R$ {Number(o.discount||0).toFixed(2)}</td>
+                      <td><strong>R$ {Number(o.paymentAmount||0).toFixed(2)}</strong></td>
+                      <td>{o.paymentMethod || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </>
       )}

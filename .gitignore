@@ -3,6 +3,7 @@
 
 # builds
 frontend/dist/
+frontend/release/
 backend/dist/
 **/.next/
 **/coverage/
@@ -14,6 +15,7 @@ backend/dist/
 
 # local runtime data
 backend/src/db.json
+backend/src/.db.json.tmp
 
 # logs
 **/*.log
@@ -31,3 +33,6 @@ pnpm-debug.log*
 .idea/
 Thumbs.db
 .DS_Store
+
+.vercel
+.env*.local

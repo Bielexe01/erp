@@ -4,7 +4,7 @@ const cors = require('cors')
 const bodyParser = require('body-parser')
 const { init } = require('./db')
 
-const authRoutes = require('./routes/auth')
+let authRoutes = require('./routes/auth')
 const path = require('path')
 const fs = require('fs')
 
@@ -23,6 +23,7 @@ let suppliersRoutes = require('./routes/suppliers')
 let purchasesRoutes = require('./routes/purchases')
 let pdvConfigsRoutes = require('./routes/pdv_configs')
 if (process.env.DATABASE_URL) {
+  authRoutes = require('./routes/auth_prisma')
   productsRoutes = require('./routes/products_prisma')
   customersRoutes = require('./routes/customers_prisma')
   ordersRoutes = require('./routes/orders_prisma')

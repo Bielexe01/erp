@@ -2,18 +2,46 @@
   "name": "pdv-frontend",
   "version": "0.1.0",
   "private": true,
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:start": "npm run build && electron .",
+    "build:win": "npm run build && electron-builder --win nsis --config.win.signAndEditExecutable=false"
   },
   "dependencies": {
+    "@capacitor/android": "^8.1.0",
+    "@capacitor/cli": "^8.1.0",
+    "@capacitor/core": "^8.1.0",
     "axios": "^1.4.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.14.1"
   },
   "devDependencies": {
+    "electron": "^40.6.1",
+    "electron-builder": "^26.8.1",
     "vite": "^5.3.0"
+  },
+  "build": {
+    "appId": "com.bielexe.erp",
+    "productName": "ERP",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": true,
+      "allowToChangeInstallationDirectory": false,
+      "include": "build/installer.nsh"
+    }
   }
 }
